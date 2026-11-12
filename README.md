@@ -90,4 +90,4 @@ The four pretrained ONNX models (RetinaFace, MiniFASNetV2, MiniFASNetV1SE, ArcFa
 - ISO/IEC 30107-3, *Biometric presentation attack detection: Testing and reporting*
 
 ## Author
-Engr. Imran Mushtaq · Final project, AI course (2026)
+Engr. Zanib Zulfiqar · Final project, AI course (2026)
