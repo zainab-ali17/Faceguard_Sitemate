@@ -1,0 +1,160 @@
+<!doctype html>
+<!--
+  face_camera/index.html - live camera with a face "mask" (Streamlit custom component)
+  ------------------------------------------------------------------------------------
+  * Runs in the user's browser: the webcam video is shown live.
+  * MediaPipe Face Landmarker finds 478 face points ~30 times per second and draws a
+    mesh "mask" that follows the face when it turns left / right / up / down.
+  * The mask colour guides the user: green = good position, amber = adjust, red = problem.
+  * "Take photo" sends the ORIGINAL frame (without the mask) to Python, where the real
+    decision (anti-spoofing + face recognition) is made.
+  The mask is only a user-interface aid; it does not decide anything.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; font-family: "Source Sans Pro", Arial, sans-serif; background: transparent; }
+  #wrap { position: relative; width: 100%; max-width: 640px; margin: 0 auto; }
+  video, canvas#overlay { width: 100%; display: block; border-radius: 14px; transform: scaleX(-1); }  /* mirror like a selfie */
+  video { background: #111; }
+  canvas#overlay { position: absolute; left: 0; top: 0; height: 100%; pointer-events: none; }
+  #status { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 6px 14px;
+            border-radius: 20px; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; white-space: nowrap; }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; border-radius: 14px; transition: opacity .25s; pointer-events: none; }
+  #bar { max-width: 640px; margin: 10px auto 4px; display: flex; gap: 10px; align-items: center; }
+  button { flex: 1; padding: 10px; font-size: 16px; border: 0; border-radius: 10px; cursor: pointer;
+           background: #ff4b4b; color: #fff; }
+  button:disabled { background: #bbb; cursor: not-allowed; }
+  #hint { max-width: 640px; margin: 0 auto; color: #888; font-size: 13px; text-align: center; }
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div id="flash"></div>
+    <div id="status">Starting camera ...</div>
+  </div>
+  <div id="bar"><button id="shot" disabled>📸 Take photo</button></div>
+  <div id="hint"></div>
+
+<script type="module">
+// ---------------------------------------------------------------- 1. talk to Streamlit
+// Streamlit components communicate with the page through window.postMessage.
+function sendToStreamlit(type, data = {}) {
+  window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data), "*");
+}
+function fitHeight() { sendToStreamlit("streamlit:setFrameHeight", { height: document.body.scrollHeight + 8 }); }
+
+const video = document.getElementById("video");
+const overlay = document.getElementById("overlay");
+const ctx = overlay.getContext("2d");
+const statusBox = document.getElementById("status");
+const shot = document.getElementById("shot");
+const hint = document.getElementById("hint");
+let buttonLabel = "📸 Take photo";
+
+window.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "streamlit:render") {
+    const args = event.data.args || {};
+    if (args.button_label) { buttonLabel = args.button_label; shot.textContent = buttonLabel; }
+    fitHeight();
+  }
+});
+sendToStreamlit("streamlit:componentReady", { apiVersion: 1 });
+window.addEventListener("resize", fitHeight);
+
+function setStatus(text, colour) { statusBox.textContent = text; statusBox.style.background = colour; }
+
+// ---------------------------------------------------------------- 2. start the webcam
+try {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }, audio: false });
+  video.srcObject = stream;
+  await video.play();
+} catch (err) {
+  setStatus("Camera blocked: allow camera access in the browser", "rgba(200,40,40,.85)");
+  throw err;
+}
+overlay.width = video.videoWidth;
+overlay.height = video.videoHeight;
+shot.disabled = false;
+setStatus("Camera on", "rgba(0,0,0,.6)");
+fitHeight();
+video.addEventListener("loadeddata", fitHeight);
+
+// ---------------------------------------------------------------- 3. load the face-mesh model
+// MediaPipe Face Landmarker (Google) runs in the browser with WebGL.
+const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+const MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+let landmarker = null, drawer = null, FL = null;
+try {
+  setStatus("Loading face mask ...", "rgba(0,0,0,.6)");
+  const mod = await import(MP + "/vision_bundle.mjs");
+  const vision = mod.FaceLandmarker ? mod : mod.default;
+  FL = vision.FaceLandmarker;
+  const files = await vision.FilesetResolver.forVisionTasks(MP + "/wasm");
+  landmarker = await FL.createFromOptions(files, {
+    baseOptions: { modelAssetPath: MODEL, delegate: "GPU" },
+    runningMode: "VIDEO", numFaces: 2 });
+  drawer = new vision.DrawingUtils(ctx);
+} catch (err) {
+  console.warn("Face mask not available:", err);
+  setStatus("Camera on (face mask unavailable)", "rgba(0,0,0,.6)");
+  hint.textContent = "The face mask could not load (no internet to the MediaPipe CDN?). You can still take photos.";
+}
+
+// ---------------------------------------------------------------- 4. draw the mask every frame
+const GREEN = "#2ecc71", AMBER = "#f5a623", RED = "#e74c3c";
+
+function guidance(faces) {
+  if (faces.length === 0) return ["Show your face to the camera", AMBER];
+  if (faces.length > 1) return ["Only one person please", RED];
+  const pts = faces[0];
+  let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
+  for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
+  const width = x1 - x0, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  if (width < 0.22) return ["Move closer", AMBER];
+  if (width > 0.75) return ["Move back a little", AMBER];
+  if (Math.abs(cx - 0.5) > 0.18 || Math.abs(cy - 0.5) > 0.2) return ["Center your face", AMBER];
+  return ["Perfect - take the photo", GREEN];
+}
+
+let lastTime = -1;
+function loop() {
+  if (landmarker && video.currentTime !== lastTime) {
+    lastTime = video.currentTime;
+    const result = landmarker.detectForVideo(video, performance.now());
+    const faces = result.faceLandmarks || [];
+    const [text, colour] = guidance(faces);
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    for (const pts of faces) {
+      drawer.drawConnectors(pts, FL.FACE_LANDMARKS_TESSELATION, { color: colour + "55", lineWidth: 0.6 }); // light mesh
+      drawer.drawConnectors(pts, FL.FACE_LANDMARKS_FACE_OVAL, { color: colour, lineWidth: 3 });            // outline
+      drawer.drawConnectors(pts, FL.FACE_LANDMARKS_LEFT_EYE, { color: colour, lineWidth: 2 });
+      drawer.drawConnectors(pts, FL.FACE_LANDMARKS_RIGHT_EYE, { color: colour, lineWidth: 2 });
+      drawer.drawConnectors(pts, FL.FACE_LANDMARKS_LIPS, { color: colour, lineWidth: 2 });
+      drawer.drawConnectors(pts, FL.FACE_LANDMARKS_LEFT_IRIS, { color: "#ffffff", lineWidth: 1.5 });
+      drawer.drawConnectors(pts, FL.FACE_LANDMARKS_RIGHT_IRIS, { color: "#ffffff", lineWidth: 1.5 });
+    }
+    setStatus(text, colour === GREEN ? "rgba(30,140,70,.85)" : colour === RED ? "rgba(190,40,40,.85)" : "rgba(180,110,0,.85)");
+    shot.disabled = faces.length !== 1;
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ---------------------------------------------------------------- 5. take the photo
+shot.addEventListener("click", () => {
+  const c = document.createElement("canvas");
+  c.width = video.videoWidth; c.height = video.videoHeight;
+  c.getContext("2d").drawImage(video, 0, 0);              // original frame, no mask, not mirrored
+  const image = c.toDataURL("image/jpeg", 0.92);
+  const flash = document.getElementById("flash");
+  flash.style.opacity = 0.8; setTimeout(() => (flash.style.opacity = 0), 150);
+  sendToStreamlit("streamlit:setComponentValue", { value: { image: image, id: Date.now() }, dataType: "json" });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+# Face access app
+onnxruntime
+opencv-python-headless
+numpy
+pandas
+streamlit==1.44.1
+tensorflow            # only to load fas_model.h5 (the app still works without it)
+
+# SiteMate RAG chatbot
+langchain-core
+langchain-groq
+langchain-chroma
+langchain-huggingface
+sentence-transformers
+chromadb
+groq
+
+# Training notebook only
+scikit-learn
+matplotlib
+kaggle

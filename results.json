@@ -1,0 +1,29 @@
+{
+  "threshold": 0.67,
+  "table": [
+    {
+      "System": "MiniFASNet (pretrained only)",
+      "Threshold": 0.95,
+      "APCER %": 10.03,
+      "BPCER %": 37.58,
+      "ACER %": 23.81,
+      "AUC": 0.8702
+    },
+    {
+      "System": "Our MobileNetV2 (trained here)",
+      "Threshold": 0.83,
+      "APCER %": 5.64,
+      "BPCER %": 6.37,
+      "ACER %": 6.01,
+      "AUC": 0.9753
+    },
+    {
+      "System": "FaceGuard = average of both",
+      "Threshold": 0.67,
+      "APCER %": 6.91,
+      "BPCER %": 11.78,
+      "ACER %": 9.35,
+      "AUC": 0.9697
+    }
+  ]
+}

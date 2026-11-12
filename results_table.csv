@@ -1,0 +1,4 @@
+System,Threshold,APCER %,BPCER %,ACER %,AUC
+MiniFASNet (pretrained only),0.95,10.03,37.58,23.81,0.8702
+Our MobileNetV2 (trained here),0.83,5.64,6.37,6.01,0.9753
+FaceGuard = average of both,0.67,6.91,11.78,9.35,0.9697

@@ -1,0 +1,34 @@
+# --- secrets: never commit ---
+kaggle.json
+.env
+*.key
+secrets.toml
+.streamlit/secrets.toml
+
+# --- personal / biometric data created by the app ---
+app_data/
+denied_photos/
+users.npz
+user_profiles.json
+*access_log.csv
+chat_log.csv
+feedback.csv
+
+# --- confidential company data ---
+rag/
+RAG_KB_Preprocessed.zip
+PRIVATE_anonymization_map.csv
+preprocess.py
+
+# --- large / re-creatable files ---
+models/*.onnx
+checkpoint_last.h5
+train_state.json
+crops.zip
+chroma_db/
+data/
+
+# --- Python / Colab clutter ---
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
